@@ -1,0 +1,218 @@
+---
+title: "social network"
+author: "eric"
+date: "11/09/2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+product<-read.csv('/Users/yanghaoying/Desktop/project/social network/products.csv', header = T)
+copurchase<-read.csv('/Users/yanghaoying/Desktop/project/social network/copurchase.csv', header = T)
+```
+```{r}
+head(product)
+```
+```{r}
+head(copurchase)
+```
+
+Delete products that are not books from “products” and “copurchase” files. Note: In social network analysis, it important to define the boundary of your work; in other words, the boundary of the network.
+
+```{r}
+library(dplyr)
+product_book<-filter(product, group=="Book" &
+                       product$salesrank<=150000 &
+                       product$salesrank !=-1)
+copurchase_book<-filter(copurchase, copurchase$Source %in% product_book$id & 
+                         copurchase$Target %in% product_book$id)
+```
+```{r}
+
+library(igraph)
+
+g <- graph.data.frame(copurchase_book, directed = T)
+
+in_degree <- degree(g, mode = 'in')
+head(in_degree)
+```
+```{r}
+out_degree <- degree(g, mode = 'out')
+head(out_degree)
+```
+```{r}
+all_degree <- degree(g, mode = 'all')
+max(all_degree)
+```
+We ran the degree function to determine how many degrees are connected to the nodes. Then, we asked R to spit out the maximum number of in and out degrees for all the nodes, to which we got 53. From there, we needed to figure out which of the nodes had 53 degrees or in other words, are connected to this particular focal product. We found out that node 4429 and node 33 both have 53 degrees. 
+```{r}
+all_degree[all_degree==53]
+```
+As for our subcomponent, we decided to use the node 33.
+```{r}
+sub <- subcomponent(g, "33",'all')
+sub
+```
+```{r}
+graph <- induced_subgraph(g, sub)
+graph
+V(graph)
+E(graph)
+V(graph)$label <- V(graph)$name
+V(graph)$degree <- degree(graph)
+plot(graph,
+     vertex.color='yellow',
+     vertex.size= V(graph)$degree*0.2,
+     edge.arrow.size=0.01,
+     vertex.label.cex=0.01,
+     layout=layout.kamada.kawai)
+```
+
+```{r}
+diameter(graph, directed = T, weights = NA)
+```
+
+```{r}
+d <- get_diameter(graph, weights = NULL)
+d
+```
+Diameter is the longest distance between two vertices, and we found the diameter to be 9. In the graph, the 10 red nodes are the vertices that on the longest path, and they are 37895, 27936, 21584, 10889, 11080, 14111, 4429, 2501, 3588, 6676.
+```{r}
+V(graph)$color<-"yellow"
+V(graph)$color[d]<-"red"
+
+plot(graph,
+     vertex.color=V(graph)$color,
+     vertex.size= V(graph)$degree*0.2,
+     edge.arrow.size=0.01,
+     vertex.label.cex=0.01,
+     layout=layout.kamada.kawai)
+```
+The graph demonstrates 904 vertices. These 904 vertices are the book ids that connected to the book whose id = 33, directly and indirectly. Size of the vertices represents the number of vertices that connected to a vertice; the bigger of the vertice, the more vertices link to it. The distance between each vertice represents how strong the vertices connect to each other; the longer the ties, the weaker the relationship. Therefore, some vertices look like clusters in the middle with short edges, which means these books have strong connections. Some vertices are nodes on the edges, which means weaker connections.
+
+```{r}
+#degree_distribution
+dd_all <- degree_distribution(graph, cumulative=T, mode="all")
+plot( x=0:max(all_degree), y=1-dd_all, pch=19, cex=1.2, col="orange", 
+      xlab="Degree", ylab="Cumulative Frequency")
+```
+Degree means the number of ties. In our degree distribution graph, degree increases at a decrease rate.
+Density is the proportion of present edges from all possible edges in the network. The density of our graph is 5.250029e-05, which is small; therefore, the networking is pretty dense.
+Centrality counts the number of links held by each node and points at individuals that can quickly connect with the wider network. Centrality here calculates the centrality of all the 904 nodes, and our results vary from 0 to 53, and 53 is the highest centrality.
+ centrality based on distance to other nodes, and it calculates the shortest paths
+Closeness is the
+Betweenness is the centrality based on a broker position connecting others.
+ between all nodes, then assigns each node a score based on its sum of shortest paths and is useful
+ for finding the individuals who are best placed to influence the entire network most quickly
+```{r}
+#density
+edge_density(graph, loops=F)
+```
+```{r}
+#centrality
+centr_degree(graph)
+```
+```{r}
+closeness<-closeness(graph, mode='all', weights=NA)
+head(closeness)
+```
+```{r}
+betweenness<-betweenness(graph, directed='T', weights=NA)
+head(betweenness)
+```
+```{r}
+#hub/authority scores
+hub_score<-hub.score(graph)$vector
+head(hub_score)
+```
+```{r}
+authority_score<-authority.score(graph)$vector
+head(authority_score)
+```
+```{r}
+product$id<-as.vector(product$id)
+sub_id<-as_ids(sub)
+product_sub<-product[product$id %in% sub_id,]
+head(product_sub)
+```
+```{r}
+mean<-copurchase_book %>%
+  group_by(Target) %>%
+  inner_join(product_sub,by=c('Source'='id'))%>%
+  summarise(nghb_mn_rating=mean(rating),
+            nghb_mn_salesrank=mean(salesrank), 
+            nghb_mn_review_cnt=mean(review_cnt))
+head(mean)
+
+```
+
+Include the variables (taking logs where necessary) created in Parts 2-6 above into the “products” information and fit a Poisson regression to predict salesrank of all the books in this subcomponent using products’ own information and their neighbor’s information. Provide an interpretation of your results. Note: Lower salesrank means higher sales. Data points in the network are related.The performance of one node is influenced by the performance of its neighbors. Also, it’s not necessary that all variables matter
+```{r}
+#convert all igraph lists to data frames
+#shift index col to the right and rename col. accordingly
+in_degree1 <- as.data.frame(in_degree)
+in_degree1 <- cbind(newColName = rownames(in_degree1), in_degree1)
+rownames(in_degree1) <- 1:nrow(in_degree1)
+colnames(in_degree1)[1] = "Nodes"
+
+out_degree1 <- as.data.frame(out_degree)
+out_degree1 <- cbind(newColName = rownames(out_degree1), out_degree1)
+rownames(out_degree1) <- 1:nrow(out_degree1)
+colnames(out_degree1) <- c("Nodes", "out_degree")
+
+closeness1 <- as.data.frame(closeness)
+closeness1 <- cbind(newColName = rownames(closeness1), closeness1)
+rownames(closeness1) <- 1:nrow(closeness1)
+colnames(closeness1) <- c("Nodes", "closeness")
+
+betweenness1 <- as.data.frame(betweenness)
+betweenness1 <- cbind(newColName = rownames(betweenness1), betweenness1)
+rownames(betweenness1) <- 1:nrow(betweenness1)
+colnames(betweenness1) <- c("Nodes", "betweenness")
+
+hub_score1 <- as.data.frame(hub_score)
+hub_score1 <- cbind(newColName = rownames(hub_score1), hub_score1)
+rownames(hub_score1) <- 1:nrow(hub_score1)
+colnames(hub_score1) <- c("Nodes", "hub_score")
+
+authority_score1 <- as.data.frame(authority_score)
+authority_score1 <- cbind(newColName = rownames(authority_score1), authority_score1)
+rownames(authority_score1) <- 1:nrow(authority_score1)
+colnames(authority_score1) <- c("Nodes", "authority_score")
+```
+
+```{r}
+#combine data frames into one data frame by nodes
+library(sqldf)
+poisson_data <- sqldf("SELECT mean.Target, hub_score, betweenness, authority_score, 
+closeness, in_degree, out_degree, nghb_mn_rating, nghb_mn_salesrank, nghb_mn_review_cnt,
+product.review_cnt, product.downloads, product.rating, product.salesrank
+                      FROM mean, product, hub_score1, betweenness1, authority_score1, closeness1, in_degree1, out_degree1
+                      WHERE mean.Target = betweenness1.Nodes 
+                      and mean.Target = authority_score1.Nodes
+                      and mean.Target = closeness1.Nodes
+                      and mean.Target = in_degree1.Nodes
+                      and mean.Target = out_degree1.Nodes
+                      and mean.Target = hub_score1.Nodes
+                      and mean.Target = product.id")
+head(poisson_data)
+```
+
+```{r}
+#run poisson regression
+summary(salesrating_prediction<- glm(salesrank ~ review_cnt + downloads + rating + hub_score + betweenness + 
+                                       authority_score + closeness + in_degree + out_degree + 
+                                       nghb_mn_rating + nghb_mn_salesrank + nghb_mn_review_cnt,, family="poisson",
+                                     data=poisson_data))
+```
+ To generate a Poisson regression model to predict sales rank of the books in the dataset, we decided to use the following variables as predictors:
+Review count Ratings
+Hub score Betweenness Authority score Closeness
+In degree
+Out degree Nghb_mn_rating Nghb_mn_salesrank Nghb_mn_review_cnt
+The values of closeness, hub_score and authority_score is just too small, therefore, we decided to apply log function on these 3 variables.
+However, after running the log function, there are infinite values existing in our data frame, and those values would influence on our model’s prediction. Therefore, we replaced inf value to NA
+value, and further removed those NA values from our data frame. Now, our poisson data has total 159 observations.
+This is our final prediction model where the dependent variable is the sales rank and the independent variables correspond to the list above.
+After running the Poisson Regression model, we found that P values for all the variables are less than 2e-16, which indicate that all the variables are significant factors regarding the prediction of books’ salesrank. Because “Lower salesrank” means “Higher Sales” for the book, there are 5 variables from our model having negative effects on salesrank, which are review_cnt, rating, betweenness, authority_score and ngnb_mn_rating. With the increasing percentage of these 5 variables, books’ salesrank would be decreasing, which indicates that more customers choose to buy the book, further generating more revenues for the company.
